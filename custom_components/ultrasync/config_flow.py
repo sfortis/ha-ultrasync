@@ -51,7 +51,7 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return UltraSyncOptionsFlowHandler(config_entry)
+        return UltraSyncOptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: Optional[ConfigType] = None
@@ -97,9 +97,10 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class UltraSyncOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle UltraSync client options."""
 
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    # No __init__ override: in modern Home Assistant (2024.12+),
+    # OptionsFlow.config_entry is a read-only property auto-populated by the
+    # framework when async_get_options_flow returns the handler. Assigning to
+    # it raises "property 'config_entry' has no setter" (500 in the UI).
 
     async def async_step_init(self, user_input: Optional[ConfigType] = None):
         """Manage UltraSync options."""
