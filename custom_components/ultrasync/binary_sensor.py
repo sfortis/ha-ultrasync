@@ -144,6 +144,7 @@ class UltraSyncZoneFlagSensor(UltraSyncEntity, BinarySensorEntity):
             entry_id=entry_id,
             entry_name=entry_name,
             name=f"{entry_name} {zone['name']} {label}",
+            zone=zone,
         )
 
     @property

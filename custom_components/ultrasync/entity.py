@@ -1,5 +1,7 @@
 """Defines the base UltraSync entity."""
 
+from typing import Any, Optional
+
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -16,6 +18,7 @@ class UltraSyncEntity(CoordinatorEntity):
         entry_id: str,
         entry_name: str,
         name: str,
+        zone: Optional[dict[str, Any]] = None,
     ) -> None:
         """Initialize the UltraSync entity."""
 
@@ -24,10 +27,22 @@ class UltraSyncEntity(CoordinatorEntity):
         self._entry_id = entry_id
         self._attr_name = name
 
-        # Group every entity of this integration under one device, named after
-        # what the user called the integration when setting it up
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry_id)},
-            name=entry_name,
-            manufacturer="UltraSync",
-        )
+        if zone is None:
+            # The panel itself is one device, named after what the user called
+            # the integration when setting it up
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, entry_id)},
+                name=entry_name,
+                manufacturer="UltraSync",
+            )
+        else:
+            # Each zone is its own device, connected through the panel, so its
+            # state, battery and tamper entities are grouped together and the
+            # zone can be placed in the area of its room
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{entry_id}_zone{zone['bank'] + 1:02}")},
+                name=zone["name"],
+                manufacturer="UltraSync",
+                model=f"Zone {zone['bank'] + 1}",
+                via_device=(DOMAIN, entry_id),
+            )

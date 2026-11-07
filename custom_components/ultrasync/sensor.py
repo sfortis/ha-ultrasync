@@ -1,7 +1,7 @@
 """Monitor the Interlogix/Hills ComNav UltraSync Hub."""
 
 import logging
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -99,6 +99,7 @@ async def async_setup_entry(
                     sensor_id,
                     # Friendly Name
                     "Zone{}State".format(bank_no + 1),
+                    zone=meta,
                 )
 
                 # Add our new zone sensor
@@ -190,6 +191,7 @@ class UltraSyncSensor(UltraSyncEntity):
         entry_name: str,
         sensor_type: str,
         sensor_name: str,
+        zone: Optional[dict] = None,
     ):
         """Initialize a new UltraSync sensor."""
 
@@ -204,6 +206,7 @@ class UltraSyncSensor(UltraSyncEntity):
             entry_id=entry_id,
             entry_name=entry_name,
             name=f"{entry_name} {sensor_name}",
+            zone=zone,
         )
 
     def __setitem__(self, key, value):
