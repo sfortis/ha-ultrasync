@@ -12,7 +12,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.typing import ConfigType
-import ultrasync
+from .vendor import ultrasync
 import voluptuous as vol
 
 from .const import DEFAULT_NAME, DEFAULT_SCAN_INTERVAL
@@ -45,13 +45,12 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """UltraSync config flow."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return UltraSyncOptionsFlowHandler(config_entry)
+        return UltraSyncOptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: Optional[ConfigType] = None
@@ -97,9 +96,10 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class UltraSyncOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle UltraSync client options."""
 
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    # No __init__ override: since Home Assistant 2024.12,
+    # OptionsFlow.config_entry is a read-only property that the framework
+    # fills in.  Assigning to it raises "property 'config_entry' has no
+    # setter", which shows as a 500 error in the UI.
 
     async def async_step_init(self, user_input: Optional[ConfigType] = None):
         """Manage UltraSync options."""

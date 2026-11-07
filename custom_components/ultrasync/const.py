@@ -18,9 +18,20 @@ SERVICE_PANIC = "panic"
 SERVICE_MEDICAL = "medical"
 SERVICE_FIRE = "fire"
 
-# Index used for managing loaded sensors
-SENSORS = "sensors"
-
-DATA_COORDINATOR = "coordinator"
-DATA_UNDO_UPDATE_LISTENER = "undo_update_listener"
 SENSOR_UPDATE_LISTENER = "ultrasync_update_sensors"
+
+# Zone conditions (as the ultrasync library names them) that mean a device
+# needs attention.  Informational ones such as Entry Delay are left out.
+ZONE_FLAG_LOW_BATTERY = "Low Battery"
+ZONE_FLAG_TAMPER = "Tamper"
+ZONE_FAULT_FLAGS = (
+    "Tamper",
+    "Trouble",
+    "Low Battery",
+    "Supervision Fault",
+    "Test Fail",
+    "Activity Fail",
+    "Antimask",
+    "Mains Failure",
+    "RF Jam",
+)

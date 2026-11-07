@@ -11,11 +11,12 @@ try:
 except ImportError:
     from async_timeout import timeout
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PIN, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-import ultrasync
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from .vendor import ultrasync
 
 from .const import DOMAIN, SENSOR_UPDATE_LISTENER
 
@@ -25,8 +26,9 @@ _LOGGER = logging.getLogger(__name__)
 class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching UltraSync data."""
 
-    def __init__(self, hass: HomeAssistant, *, config: dict, options: dict):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         """Initialize global UltraSync data updater."""
+        config = entry.data
         self.hub = ultrasync.UltraSync(
             user=config[CONF_USERNAME],
             pin=config[CONF_PIN],
@@ -42,17 +44,24 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # The areas from the last successful poll (used by the alarm panels)
         self.areas = []
 
+        # The zones from the last successful poll (used by the binary sensors)
+        self.zones = []
+
+        # The system faults the panel reported on the last successful poll
+        self.system_faults = []
+
         # Used to track delta (for change tracking)
         self._area_delta = {}
         self._zone_delta = {}
         self._output_delta = {}
         self._history_delta = {}
 
-        update_interval = timedelta(seconds=options[CONF_SCAN_INTERVAL])
+        update_interval = timedelta(seconds=entry.options[CONF_SCAN_INTERVAL])
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=update_interval,
         )
@@ -67,10 +76,21 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         async with timeout(10):
             details = await self.hass.async_add_executor_job(self._details)
 
+        if not details:
+            # The library logs the reason (timeout, refused login and so on).
+            # Raising marks the entities unavailable, and on the first poll
+            # makes Home Assistant retry the setup later.
+            raise UpdateFailed("UltraSync panel did not return any data")
+
         # Update our details
         if details:
-            # Keep the latest areas for the alarm panels
+            # Keep the latest areas, zones and faults for the entities that
+            # read them directly
             self.areas = details["areas"]
+            self.zones = details["zones"]
+
+            # Library versions before panel fault support do not send this
+            self.system_faults = details.get("system_faults", [])
 
             async_dispatcher_send(
                 self.hass,

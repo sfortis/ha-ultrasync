@@ -80,6 +80,18 @@ Each area on your panel also gets an alarm control panel entity, named `{ultrasy
 
 All of the sensors, events and services above keep working as before.
 
+### Panel Faults
+
+The integration reports the faults that the panel itself shows, such as a low battery on a wireless sensor or a mains failure.
+
+- `binary_sensor.{ultrasync_integration}_problem` turns on when the panel reports any system fault or any zone needs attention. Its `faults` attribute lists each one, for example `MC KITCHEN: Low Battery` or `System: AC Fail`.
+- `sensor.{ultrasync_integration}_system_faults` shows the system faults of the panel as text, or `No faults`. Its `faults` attribute holds them as a list.
+- Each zone gets a `Battery` and a `Tamper` binary sensor. They are diagnostic entities, so they appear on the device page rather than on default dashboards.
+
+Zone faults need an xGen, xGen8 or ZeroWire panel.
+
+This fork ships its own copy of the `ultrasync` library in `custom_components/ultrasync/vendor`, taken from the `panel-faults` branch of `sfortis/ultrasync`. Home Assistant therefore installs nothing from PyPI or GitHub for this integration. After changing the library, run `scripts/vendor_ultrasync.sh <path to the ultrasync checkout>` to update the copy.
+
 ### Event Automation
 
 When an Zone or Sensor changes it's state an event usable for automation is triggered on the Home Assistant Bus.
@@ -111,12 +123,14 @@ Available services:
 
 - `stay`: Set alarm scene to Stay Mode
 - `away`: Set alarm scene to Away Mode (fully activate Alarm)
-- `medical`: Triggers the Alarm (Medical Alarm)
-- `fire`: Triggers the Alarm (Fire Alarm)
-- `panic`: Triggers the Alarm (Panic Alarm)
+- `medical`: Triggers the Alarm (Medical Alarm). ComNav panels only.
+- `fire`: Triggers the Alarm (Fire Alarm). ComNav panels only.
+- `panic`: Triggers the Alarm (Panic Alarm). ComNav panels only.
 - `disarm`: Disarm the alarm
 - `bypass`: Bypasses a specified Zone
 - `switch`: Activates an Output Control entity
+
+On xGen, xGen8 and ZeroWire panels the `medical`, `fire` and `panic` services return an error. Older versions of the `ultrasync` library sent a disarm to these panels instead.
 
 As an example you may want to `arm` your alarm in `stay` mode each night and disarm it in the morning like so:
 

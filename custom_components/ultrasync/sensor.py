@@ -3,6 +3,7 @@
 import logging
 from typing import Callable, List
 
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback, HomeAssistant
@@ -10,13 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
 from .entity import UltraSyncEntity
-from .const import (
-    DATA_COORDINATOR,
-    DATA_UNDO_UPDATE_LISTENER,
-    DOMAIN,
-    SENSOR_UPDATE_LISTENER,
-    SENSORS,
-)
+from .const import SENSOR_UPDATE_LISTENER
 from .coordinator import UltraSyncDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,17 +23,25 @@ async def async_setup_entry(
     async_add_entities: Callable[[List[Entity], bool], None],
 ) -> None:
     """Set up UltraSync sensor based on a config entry."""
-    coordinator: UltraSyncDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: UltraSyncDataUpdateCoordinator = entry.runtime_data.coordinator
+
+    # A pointer to our sensors
+    sensors = entry.runtime_data.sensors
 
     # At least one sensor must be pre-created or Home Assistant will not
     # call any updates
-    hass.data[DOMAIN][entry.entry_id][SENSORS]["area01_state"] = UltraSyncSensor(
+    sensors["area01_state"] = UltraSyncSensor(
         coordinator, entry.entry_id, entry.data[CONF_NAME], "area01_state", "Area1State"
     )
 
-    async_add_entities([hass.data[DOMAIN][entry.entry_id][SENSORS]["area01_state"]])
+    async_add_entities(
+        [
+            sensors["area01_state"],
+            UltraSyncSystemFaultsSensor(
+                coordinator, entry.entry_id, entry.data[CONF_NAME]
+            ),
+        ]
+    )
 
     @callback
     def _auto_manage_sensors(areas: dict, zones: dict, outputs: dict, history_data: dict) -> None:
@@ -54,9 +57,6 @@ async def async_setup_entry(
 
         # our list of sensors to add
         new_sensors = []
-
-        # A pointer to our sensors
-        sensors = hass.data[DOMAIN][entry.entry_id][SENSORS]
 
         # Track our detected sensors (for automatic updates if required)
         detected_sensors = set()
@@ -175,7 +175,7 @@ async def async_setup_entry(
 
     # register our callback which will be called the second we make a
     # connection to our panel
-    hass.data[DOMAIN][entry.entry_id][DATA_UNDO_UPDATE_LISTENER].append(
+    entry.async_on_unload(
         async_dispatcher_connect(hass, SENSOR_UPDATE_LISTENER, _auto_manage_sensors)
     )
 
@@ -229,3 +229,41 @@ class UltraSyncSensor(UltraSyncEntity):
             return None
 
         return value
+
+
+class UltraSyncSystemFaultsSensor(UltraSyncEntity, SensorEntity):
+    """The system faults the panel reports, such as a low panel battery."""
+
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(
+        self,
+        coordinator: UltraSyncDataUpdateCoordinator,
+        entry_id: str,
+        entry_name: str,
+    ) -> None:
+        """Initialize the system faults sensor."""
+        self._attr_unique_id = f"{entry_id}_system_faults"
+
+        super().__init__(
+            coordinator=coordinator,
+            entry_id=entry_id,
+            entry_name=entry_name,
+            name=f"{entry_name} System Faults",
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the faults as one line, or "No faults" when there are none."""
+        faults = self.coordinator.system_faults
+        if not faults:
+            return "No faults"
+
+        # A state can hold at most 255 characters; the full list is in the
+        # attributes
+        return ", ".join(faults)[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the faults as a list."""
+        return {"faults": list(self.coordinator.system_faults)}

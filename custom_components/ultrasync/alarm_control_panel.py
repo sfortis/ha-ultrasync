@@ -13,10 +13,10 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from ultrasync import AlarmScene
-from ultrasync.common import AreaStatus
+from .vendor.ultrasync import AlarmScene
+from .vendor.ultrasync.common import AreaStatus
 
-from .const import DATA_COORDINATOR, DEFAULT_NAME, DOMAIN
+from .const import DEFAULT_NAME
 from .coordinator import UltraSyncDataUpdateCoordinator
 from .entity import UltraSyncEntity
 
@@ -48,9 +48,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up one UltraSync alarm control panel for each area."""
-    coordinator: UltraSyncDataUpdateCoordinator = hass.data[DOMAIN][
-        entry.entry_id
-    ][DATA_COORDINATOR]
+    coordinator: UltraSyncDataUpdateCoordinator = entry.runtime_data.coordinator
 
     # The first poll has already run, so the panel's areas are known
     entry_name = entry.data.get(CONF_NAME, DEFAULT_NAME)

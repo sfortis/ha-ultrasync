@@ -1,43 +1,52 @@
 """The Interlogix/Hills ComNav UltraSync Hub component."""
 
-import asyncio
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
-from ultrasync import AlarmScene
+from homeassistant.const import CONF_SCAN_INTERVAL, Platform
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 import voluptuous as vol
 
 from .const import (
-    DATA_COORDINATOR,
-    DATA_UNDO_UPDATE_LISTENER,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    SENSORS,
     SERVICE_AWAY,
+    SERVICE_BYPASS,
     SERVICE_DISARM,
-    SERVICE_STAY,
     SERVICE_FIRE,
     SERVICE_MEDICAL,
     SERVICE_PANIC,
-    SERVICE_BYPASS,
+    SERVICE_STAY,
+    SERVICE_SWITCH,
     SERVICE_UNBYPASS,
-    SERVICE_SWITCH
 )
 from .coordinator import UltraSyncDataUpdateCoordinator
+from .vendor.ultrasync import AlarmScene
 
-PLATFORMS = ["sensor", "alarm_control_panel"]
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the UltraSync integration."""
-    hass.data.setdefault(DOMAIN, {})
-
-    return True
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.ALARM_CONTROL_PANEL,
+]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+@dataclass
+class UltraSyncData:
+    """The objects one UltraSync config entry keeps while it is loaded."""
+
+    coordinator: UltraSyncDataUpdateCoordinator
+
+    # The dynamically created area, zone, output and history sensors, by id
+    sensors: dict = field(default_factory=dict)
+
+
+type UltraSyncConfigEntry = ConfigEntry[UltraSyncData]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: UltraSyncConfigEntry) -> bool:
     """Set up UltraSync from a config entry."""
     if not entry.options:
         options = {
@@ -47,24 +56,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         }
         hass.config_entries.async_update_entry(entry, options=options)
 
-    coordinator = UltraSyncDataUpdateCoordinator(
-        hass,
-        config=entry.data,
-        options=entry.options,
-    )
+    coordinator = UltraSyncDataUpdateCoordinator(hass, entry)
 
-    await coordinator.async_refresh()
+    # Raises ConfigEntryNotReady if the panel can not be reached
+    await coordinator.async_config_entry_first_refresh()
 
-    if not coordinator.last_update_success:
-        raise ConfigEntryNotReady
+    entry.runtime_data = UltraSyncData(coordinator=coordinator)
 
-    undo_listener = entry.add_update_listener(_async_update_listener)
-
-    hass.data[DOMAIN][entry.entry_id] = {
-        DATA_COORDINATOR: coordinator,
-        DATA_UNDO_UPDATE_LISTENER: [undo_listener],
-        SENSORS: {},
-    }
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -73,21 +72,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+SERVICES = (
+    SERVICE_AWAY,
+    SERVICE_STAY,
+    SERVICE_DISARM,
+    SERVICE_FIRE,
+    SERVICE_MEDICAL,
+    SERVICE_PANIC,
+    SERVICE_BYPASS,
+    SERVICE_UNBYPASS,
+    SERVICE_SWITCH,
+)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: UltraSyncConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = all(
-        await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, component)
-                for component in PLATFORMS
-            ]
-        )
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        for unsub in hass.data[DOMAIN][entry.entry_id][DATA_UNDO_UPDATE_LISTENER]:
-            unsub()
-        hass.data[DOMAIN].pop(entry.entry_id)
+        # The services hold this entry's logged-in panel session.  Only one
+        # entry is allowed, so nothing else is using them.
+        for service in SERVICES:
+            hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
 
@@ -98,55 +104,80 @@ def _async_register_services(
 ) -> None:
     """Register integration-level services."""
 
-    def away(call) -> None:
-        """Service call to set alarm system to 'away' mode in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.AWAY)
+    def _set_alarm(state: str) -> None:
+        """Send an arm mode to every area, raising an error if it failed."""
+        with coordinator.hub_lock:
+            ok = coordinator.hub.set_alarm(state=state)
 
-    def stay(call) -> None:
-        """Service call to set alarm system to 'stay' mode in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.STAY)
-        
-    def fire(call) -> None:
-        """Service call to set alarm system to 'fire' mode in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.FIRE)
+        if not ok:
+            # The panel refused the command, could not be reached, or does not
+            # support this mode (fire, medical and panic are ComNav only)
+            raise HomeAssistantError(f"UltraSync could not set the alarm to {state}")
 
-    def medical(call) -> None:
-        """Service call to set alarm system to 'medical' mode in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.MEDICAL)
+    def _alarm_service(state: str):
+        """Return a service handler that sends one arm mode."""
 
-    def panic(call) -> None:
-        """Service call to set alarm system to 'panic' mode in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.PANIC)
+        def handler(call: ServiceCall) -> None:
+            _set_alarm(state)
 
-    def disarm(call) -> None:
-        """Service call to disable alarm in UltraSync Hub."""
-        coordinator.hub.set_alarm(state=AlarmScene.DISARMED)
+        return handler
 
-    def bypass(call) -> None:
+    def bypass(call: ServiceCall) -> None:
         """Service call to bypass a zone in UltraSync Hub."""
-        coordinator.hub.set_zone_bypass(state=True, zone=call.data['zone'])
+        with coordinator.hub_lock:
+            ok = coordinator.hub.set_zone_bypass(state=True, zone=call.data["zone"])
+        if not ok:
+            raise HomeAssistantError(f"UltraSync could not bypass zone {call.data['zone']}")
 
-    def unbypass(call) -> None:
+    def unbypass(call: ServiceCall) -> None:
         """Service call to unbypass a zone in UltraSync Hub."""
-        coordinator.hub.set_zone_bypass(state=False, zone=call.data['zone'])
+        with coordinator.hub_lock:
+            ok = coordinator.hub.set_zone_bypass(state=False, zone=call.data["zone"])
+        if not ok:
+            raise HomeAssistantError(f"UltraSync could not unbypass zone {call.data['zone']}")
 
-    def switch(call) -> None:
+    def switch(call: ServiceCall) -> None:
         """Service call to switch on/off an output control in UltraSync Hub."""
-        coordinator.hub.set_output_control(output=call.data['output'], state=call.data['state'])
+        with coordinator.hub_lock:
+            ok = coordinator.hub.set_output_control(
+                output=call.data["output"], state=call.data["state"]
+            )
+        if not ok:
+            raise HomeAssistantError(
+                f"UltraSync could not switch output {call.data['output']}"
+            )
 
-    hass.services.async_register(DOMAIN, SERVICE_AWAY, away, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_STAY, stay, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_FIRE, fire, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_MEDICAL, medical, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_PANIC, panic, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_DISARM, disarm, schema=vol.Schema({}))
-    hass.services.async_register(DOMAIN, SERVICE_BYPASS, bypass)
-    hass.services.async_register(DOMAIN, SERVICE_UNBYPASS, unbypass)
-    hass.services.async_register(DOMAIN, SERVICE_SWITCH, switch, schema=vol.Schema({
-        vol.Required('output'): vol.Coerce(int),
-        vol.Required('state'): vol.Coerce(int),
-    }))
+    no_fields = vol.Schema({})
+    for service, state in (
+        (SERVICE_AWAY, AlarmScene.AWAY),
+        (SERVICE_STAY, AlarmScene.STAY),
+        (SERVICE_DISARM, AlarmScene.DISARMED),
+        (SERVICE_FIRE, AlarmScene.FIRE),
+        (SERVICE_MEDICAL, AlarmScene.MEDICAL),
+        (SERVICE_PANIC, AlarmScene.PANIC),
+    ):
+        hass.services.async_register(
+            DOMAIN, service, _alarm_service(state), schema=no_fields
+        )
 
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    zone_schema = vol.Schema({vol.Required("zone"): vol.Coerce(int)})
+    hass.services.async_register(DOMAIN, SERVICE_BYPASS, bypass, schema=zone_schema)
+    hass.services.async_register(
+        DOMAIN, SERVICE_UNBYPASS, unbypass, schema=zone_schema
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SWITCH,
+        switch,
+        schema=vol.Schema(
+            {
+                vol.Required("output"): vol.Coerce(int),
+                vol.Required("state"): vol.All(vol.Coerce(int), vol.In([0, 1])),
+            }
+        ),
+    )
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: UltraSyncConfigEntry) -> None:
     """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)
