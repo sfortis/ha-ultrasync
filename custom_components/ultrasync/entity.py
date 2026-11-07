@@ -44,5 +44,5 @@ class UltraSyncEntity(CoordinatorEntity):
                 name=zone["name"],
                 manufacturer="UltraSync",
                 model=f"Zone {zone['bank'] + 1}",
-                via_device=(DOMAIN, entry_id),
+                via_device_id=coordinator.config_entry.runtime_data.panel_device_id,
             )

@@ -7,5 +7,5 @@
         "alarm_control_panel"
     ],
     "render_readme": true,
-    "homeassistant": "2024.12.0"
+    "homeassistant": "2026.8.0"
 }

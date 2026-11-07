@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_SCAN_INTERVAL, Platform
+from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 import voluptuous as vol
 
 from .const import (
+    DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     SERVICE_AWAY,
@@ -39,6 +41,9 @@ class UltraSyncData:
 
     coordinator: UltraSyncDataUpdateCoordinator
 
+    # The device registry id of the panel; the zone devices link to it
+    panel_device_id: str
+
     # The dynamically created area, zone, output and history sensors, by id
     sensors: dict = field(default_factory=dict)
 
@@ -61,7 +66,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: UltraSyncConfigEntry) ->
     # Raises ConfigEntryNotReady if the panel can not be reached
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = UltraSyncData(coordinator=coordinator)
+    # Register the panel device before the platforms add their entities, so
+    # the zone devices can link to it by its registry id
+    panel = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.data.get(CONF_NAME, DEFAULT_NAME),
+        manufacturer="UltraSync",
+    )
+
+    entry.runtime_data = UltraSyncData(
+        coordinator=coordinator, panel_device_id=panel.id
+    )
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
