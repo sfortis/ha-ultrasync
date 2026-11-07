@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import voluptuous as vol
 
 from .const import (
@@ -49,6 +49,24 @@ class UltraSyncData:
 
 
 type UltraSyncConfigEntry = ConfigEntry[UltraSyncData]
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    if entry.version == 1 and entry.minor_version < 2:
+        # Version 1.1 created a Battery and a Tamper sensor for every zone.
+        # From 1.2 they are only created once the panel reports the
+        # condition, so the sensors created up front are removed.
+        ent_reg = er.async_get(hass)
+        for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+            if ent.domain == "binary_sensor" and ent.unique_id.endswith(
+                ("_battery", "_tamper")
+            ):
+                ent_reg.async_remove(ent.entity_id)
+
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: UltraSyncConfigEntry) -> bool:

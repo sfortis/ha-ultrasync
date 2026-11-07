@@ -45,6 +45,7 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """UltraSync config flow."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     @callback

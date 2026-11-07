@@ -86,7 +86,7 @@ The integration reports the faults that the panel itself shows, such as a low ba
 
 - `binary_sensor.{ultrasync_integration}_problem` turns on when the panel reports any system fault or any zone needs attention. Its `faults` attribute lists each one, for example `MC KITCHEN: Low Battery` or `System: AC Fail`.
 - `sensor.{ultrasync_integration}_system_faults` shows the system faults of the panel as text, or `No faults`. Its `faults` attribute holds them as a list.
-- Each zone gets a `Battery` and a `Tamper` binary sensor. They are diagnostic entities, so they appear on the device page rather than on default dashboards.
+- A zone gets a `Battery` or a `Tamper` binary sensor the first time the panel reports that condition on it, and keeps it from then on. The panel does not say which zones are wireless or have a tamper switch, so they are not created up front. They are diagnostic entities, so they appear on the zone's device page rather than on default dashboards.
 
 Zone faults need an xGen, xGen8 or ZeroWire panel.
 

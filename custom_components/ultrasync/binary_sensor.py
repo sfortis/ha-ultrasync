@@ -10,7 +10,8 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.const import CONF_NAME, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import UltraSyncConfigEntry
@@ -41,32 +42,65 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     entry_name = entry.data.get(CONF_NAME, DEFAULT_NAME)
 
-    entities: list[BinarySensorEntity] = [
-        UltraSyncProblemSensor(coordinator, entry.entry_id, entry_name)
-    ]
+    # The panel does not say which zones have a battery or a tamper switch.
+    # A zone's Battery or Tamper sensor is therefore created the first time
+    # the panel reports that condition on the zone, and is kept from then on
+    # because its entity stays in the entity registry.
+    registered = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if e.domain == "binary_sensor"
+    }
+    added: set[str] = set()
 
-    # The first poll has already run, so the zones are known.  Zone flags
-    # come from newer versions of the ultrasync library and from xGen, xGen8
-    # and ZeroWire panels only; without them there is nothing to report.
-    for zone in coordinator.zones:
-        if "flags" not in zone:
-            continue
+    def _new_zone_sensors() -> list[BinarySensorEntity]:
+        """Return the zone sensors that are due and not added yet."""
+        new: list[BinarySensorEntity] = []
+        for zone in coordinator.zones:
+            # Zone flags come from xGen, xGen8 and ZeroWire panels only
+            if "flags" not in zone:
+                continue
 
-        for key, label, device_class, flag in ZONE_SENSORS:
-            entities.append(
-                UltraSyncZoneFlagSensor(
-                    coordinator,
-                    entry.entry_id,
-                    entry_name,
-                    zone,
-                    key=key,
-                    label=label,
-                    device_class=device_class,
-                    flag=flag,
+            for key, label, device_class, flag in ZONE_SENSORS:
+                unique_id = zone_flag_unique_id(entry.entry_id, zone["bank"], key)
+                if unique_id in added:
+                    continue
+                if unique_id not in registered and flag not in zone["flags"]:
+                    continue
+
+                added.add(unique_id)
+                new.append(
+                    UltraSyncZoneFlagSensor(
+                        coordinator,
+                        entry.entry_id,
+                        entry_name,
+                        zone,
+                        key=key,
+                        label=label,
+                        device_class=device_class,
+                        flag=flag,
+                    )
                 )
-            )
+        return new
 
-    async_add_entities(entities)
+    # The first poll has already run, so the zones are known
+    async_add_entities(
+        [UltraSyncProblemSensor(coordinator, entry.entry_id, entry_name)]
+        + _new_zone_sensors()
+    )
+
+    @callback
+    def _async_add_reported_zone_sensors() -> None:
+        """Add the sensor of a condition a zone reports for the first time."""
+        if new := _new_zone_sensors():
+            async_add_entities(new)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_reported_zone_sensors))
+
+
+def zone_flag_unique_id(entry_id: str, bank: int, key: str) -> str:
+    """Return the unique id of a zone's Battery or Tamper sensor."""
+    return f"{entry_id}_zone{bank + 1:02}_{key}"
 
 
 def _zone_faults(zone: dict[str, Any]) -> list[str]:
@@ -137,7 +171,7 @@ class UltraSyncZoneFlagSensor(UltraSyncEntity, BinarySensorEntity):
         self._flag = flag
 
         self._attr_device_class = device_class
-        self._attr_unique_id = f"{entry_id}_zone{self._bank + 1:02}_{key}"
+        self._attr_unique_id = zone_flag_unique_id(entry_id, self._bank, key)
 
         super().__init__(
             coordinator=coordinator,
