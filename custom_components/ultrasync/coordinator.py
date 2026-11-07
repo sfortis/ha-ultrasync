@@ -2,6 +2,8 @@
 from datetime import timedelta
 import logging
 import threading
+import time
+from typing import Any, Callable
 
 try:
     # Python 3.11+ has this built in; newer Home Assistant no longer ships
@@ -14,11 +16,23 @@ except ImportError:
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PIN, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .vendor import ultrasync
 
-from .const import DOMAIN, SENSOR_UPDATE_LISTENER
+from .const import (
+    DOMAIN,
+    EVENT_POLL_INTERVAL,
+    EVENT_POLL_SIZE,
+    EVENT_READ_PAGES,
+    IGNORED_EVENT_CODES,
+    SENSOR_UPDATE_LISTENER,
+)
+from .vendor.ultrasync.common import NX595EVendor
+
+# Marks an event log that was empty when it was first read
+_EMPTY_LOG = object()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +64,19 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # The system faults the panel reported on the last successful poll
         self.system_faults = []
 
+        # The panel events that appeared since the previous poll, oldest
+        # first (used by the event entity)
+        self.new_events: list[dict[str, Any]] = []
+
+        # The id of the newest panel event seen; None until the event log
+        # has been read once, so old events are not replayed at start up
+        self._last_event_id = None
+
+        # When the event log is read next (time.monotonic), and the area
+        # sequences at the last read; an area change triggers a read at once
+        self._next_event_read = 0.0
+        self._event_area_sequences = None
+
         # Used to track delta (for change tracking)
         self._area_delta = {}
         self._zone_delta = {}
@@ -75,6 +102,12 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # The hub can sometimes take a very long time to respond; wait
         async with timeout(10):
             details = await self.hass.async_add_executor_job(self._details)
+
+        # The event log is read after the details, with its own time limit,
+        # so a slow event read never fails the poll
+        self.new_events = []
+        if details and self._event_read_due(details):
+            self.new_events = await self._async_read_events()
 
         if not details:
             # The library logs the reason (timeout, refused login and so on).
@@ -205,7 +238,112 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # Return our response
         return response
 
+    @property
+    def supports_events(self) -> bool:
+        """Return true if the library can read this panel's event log."""
+        return self.hub.vendor is NX595EVendor.XGEN8
+
     def _details(self) -> dict:
         """Read the panel details, waiting for any alarm command to finish."""
         with self.hub_lock:
             return self.hub.details(max_age_sec=0)
+
+    def _event_read_due(self, details: dict) -> bool:
+        """Return true if the event log should be read on this poll.
+
+        The log is read every EVENT_POLL_INTERVAL seconds, and at once when an
+        area changes (arm, disarm or alarm).
+        """
+        if not self.supports_events:
+            return False
+
+        sequences = tuple(a.get("sequence") for a in details["areas"])
+        now = time.monotonic()
+        if now < self._next_event_read and sequences == self._event_area_sequences:
+            return False
+
+        self._next_event_read = now + EVENT_POLL_INTERVAL
+        self._event_area_sequences = sequences
+        return True
+
+    async def _async_read_events(self) -> list[dict[str, Any]]:
+        """Return the new panel events, or none if the log could not be read."""
+        try:
+            async with timeout(10):
+                return await self.hass.async_add_executor_job(self._read_new_events)
+        except Exception:  # noqa: BLE001
+            # The event log is extra information; never fail a poll on it
+            _LOGGER.debug("Reading the UltraSync event log failed", exc_info=True)
+            return []
+
+    def _read_events(self, start: int | None = None) -> list[dict[str, Any]] | None:
+        """Read one page of the event log, newest first."""
+        with self.hub_lock:
+            return self.hub.events(count=EVENT_POLL_SIZE, start=start)
+
+    def _read_new_events(self) -> list[dict[str, Any]]:
+        """Return the events newer than the last one seen, oldest first."""
+        events = self._read_events()
+        if events is None:
+            return []
+
+        if self._last_event_id is None:
+            # The first read only marks where the log is
+            self._last_event_id = events[0].get("id") if events else _EMPTY_LOG
+            return []
+
+        if not events:
+            return []
+
+        new: list[dict[str, Any]] = []
+        page = events
+        complete = False
+        for _ in range(EVENT_READ_PAGES):
+            for event in page:
+                if event.get("id") == self._last_event_id:
+                    complete = True
+                    break
+                new.append(event)
+
+            if complete:
+                break
+
+            oldest = page[-1].get("id")
+            if (
+                self._last_event_id is _EMPTY_LOG
+                or len(page) < EVENT_POLL_SIZE
+                or not isinstance(oldest, int)
+                or oldest <= 0
+            ):
+                # The log has no older entries (or was empty before)
+                complete = True
+                break
+
+            # More events arrived than one page holds; read further back
+            page = self._read_events(start=oldest - 1)
+            if not page:
+                break
+
+        if not complete:
+            _LOGGER.warning(
+                "More than %d UltraSync panel events arrived since the last read; "
+                "the older ones were not reported",
+                len(new),
+            )
+
+        self._last_event_id = events[0].get("id")
+        return [e for e in reversed(new) if e.get("code") not in IGNORED_EVENT_CODES]
+
+    async def async_hub_command(
+        self, description: str, command: Callable[..., bool], **kwargs: Any
+    ) -> None:
+        """Send a command to the panel and refresh, raising if it failed."""
+
+        def _send() -> bool:
+            with self.hub_lock:
+                return command(**kwargs)
+
+        if not await self.hass.async_add_executor_job(_send):
+            raise HomeAssistantError(f"UltraSync could not {description}")
+
+        await self.async_request_refresh()

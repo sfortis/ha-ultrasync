@@ -31,6 +31,8 @@ from .vendor.ultrasync import AlarmScene
 PLATFORMS = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.SWITCH,
+    Platform.EVENT,
     Platform.ALARM_CONTROL_PANEL,
 ]
 

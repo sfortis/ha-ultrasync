@@ -92,6 +92,47 @@ Zone faults need an xGen, xGen8 or ZeroWire panel.
 
 This fork ships its own copy of the `ultrasync` library in `custom_components/ultrasync/vendor`, taken from the `panel-faults` branch of `sfortis/ultrasync`. Home Assistant therefore installs nothing from PyPI or GitHub for this integration. After changing the library, run `scripts/vendor_ultrasync.sh <path to the ultrasync checkout>` to update the copy.
 
+### Zone and Area Controls
+
+On xGen8 panels each zone device also gets two switches, and the panel device gets switches and sensors for each area:
+
+- `Bypass` bypasses the zone while it is on. It sends the same command as the `bypass` and `unbypass` services. These switches start disabled; enable the ones you want on the zone's device page. Zones that the panel does not allow to be bypassed get no switch.
+- `Chime` makes the keypad chime when the zone opens. It is a configuration entity.
+- The area `Chime` switch turns the chime of the whole area on or off.
+- The area `Night Mode` binary sensor is on while the area is armed in night mode.
+- The area `Walk Test` binary sensor is on while the panel runs a walk test. It is a diagnostic entity.
+
+**Warning:** every Home Assistant user who can see these switches can bypass a zone. A bypassed zone does not trigger the alarm while the area is armed. Home Assistant exposes switches to voice assistants by default, so after enabling a Bypass switch, check that it is not exposed under Settings, Voice assistants, Expose.
+
+### Panel Event Log
+
+On xGen8 panels, `event.{ultrasync_integration}_panel_event` fires for every new entry in the panel's own event log. The log is read every 30 seconds, and at once when an area changes. The event type comes from the Contact ID code of the entry: `alarm`, `alarm_restore`, `trouble`, `trouble_restore`, `arm`, `disarm`, `bypass`, `bypass_restore` or `other`. The event data holds the panel's description, the Contact ID code, the zone, the area and the user, with their names.
+
+Remote logins (Contact ID 412) are left out, because Home Assistant itself logs in to the panel every few minutes.
+
+Example automation that reports who disarmed the alarm:
+
+```yaml
+- alias: Report Disarm
+  trigger:
+    platform: state
+    entity_id: event.ultrasync_panel_event
+    # Without this, the last event is reported again when the entity comes
+    # back from unavailable
+    not_from:
+      - unavailable
+      - unknown
+  condition:
+    - condition: state
+      entity_id: event.ultrasync_panel_event
+      attribute: event_type
+      state: disarm
+  action:
+    service: notify.notify
+    data:
+      message: "{{ trigger.to_state.attributes.description }} by {{ trigger.to_state.attributes.user_name }}"
+```
+
 ### Event Automation
 
 When an Zone or Sensor changes it's state an event usable for automation is triggered on the Home Assistant Bus.

@@ -33,6 +33,18 @@ ZONE_SENSORS = (
 )
 
 
+# The area binary sensors, read from the area's "states" dictionary
+AREA_SENSORS = (
+    {"key": "night", "label": "Night Mode", "icon": "mdi:weather-night", "category": None},
+    {
+        "key": "walk_test",
+        "label": "Walk Test",
+        "icon": "mdi:walk",
+        "category": EntityCategory.DIAGNOSTIC,
+    },
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: UltraSyncConfigEntry,
@@ -83,9 +95,18 @@ async def async_setup_entry(
                 )
         return new
 
-    # The first poll has already run, so the zones are known
+    # Night mode and walk test come from xGen, xGen8 and ZeroWire panels
+    area_sensors: list[BinarySensorEntity] = [
+        UltraSyncAreaStateSensor(coordinator, entry.entry_id, entry_name, area, **spec)
+        for area in coordinator.areas
+        for spec in AREA_SENSORS
+        if spec["key"] in area.get("states", {})
+    ]
+
+    # The first poll has already run, so the zones and areas are known
     async_add_entities(
         [UltraSyncProblemSensor(coordinator, entry.entry_id, entry_name)]
+        + area_sensors
         + _new_zone_sensors()
     )
 
@@ -200,3 +221,55 @@ class UltraSyncZoneFlagSensor(UltraSyncEntity, BinarySensorEntity):
         if zone is None:
             return None
         return self._flag in zone.get("flags", [])
+
+
+class UltraSyncAreaStateSensor(UltraSyncEntity, BinarySensorEntity):
+    """On while an area is in a mode such as night mode or walk test."""
+
+    def __init__(
+        self,
+        coordinator: UltraSyncDataUpdateCoordinator,
+        entry_id: str,
+        entry_name: str,
+        area: dict[str, Any],
+        *,
+        key: str,
+        label: str,
+        icon: str,
+        category: Optional[EntityCategory],
+    ) -> None:
+        """Initialize the area mode sensor."""
+        # The area's position on the panel (starting at 0)
+        self._bank = area["bank"]
+        self._key = key
+
+        self._attr_icon = icon
+        self._attr_entity_category = category
+        self._attr_unique_id = f"{entry_id}_area{self._bank + 1:02}_{key}"
+
+        super().__init__(
+            coordinator=coordinator,
+            entry_id=entry_id,
+            entry_name=entry_name,
+            name=f"{entry_name} {area['name']} {label}",
+        )
+
+    @property
+    def _area(self) -> Optional[dict[str, Any]]:
+        """Return this area from the latest poll, if the panel still has it."""
+        return next(
+            (a for a in self.coordinator.areas if a["bank"] == self._bank), None
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return false when the panel or the area can not be read."""
+        return super().available and self._area is not None
+
+    @property
+    def is_on(self) -> Optional[bool]:
+        """Return true while the area is in this mode."""
+        area = self._area
+        if area is None:
+            return None
+        return bool(area.get("states", {}).get(self._key))
