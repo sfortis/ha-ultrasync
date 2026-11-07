@@ -19,6 +19,7 @@ class UltraSyncEntity(CoordinatorEntity):
         entry_name: str,
         name: str,
         zone: Optional[dict[str, Any]] = None,
+        has_entity_name: bool = False,
     ) -> None:
         """Initialize the UltraSync entity."""
 
@@ -26,6 +27,12 @@ class UltraSyncEntity(CoordinatorEntity):
 
         self._entry_id = entry_id
         self._attr_name = name
+
+        # Newer entities are named relative to their device ("Chime" on the
+        # device "MC KITCHEN"), which gives entity ids such as
+        # switch.mc_kitchen_chime.  The older entities keep their full names,
+        # so their names and ids do not change.
+        self._attr_has_entity_name = has_entity_name
 
         if zone is None:
             # The panel itself is one device, named after what the user called

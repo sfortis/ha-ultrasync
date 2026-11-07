@@ -77,8 +77,9 @@ class _UltraSyncZoneSwitch(UltraSyncEntity, SwitchEntity):
             coordinator=coordinator,
             entry_id=entry_id,
             entry_name=entry_name,
-            name=f"{entry_name} {zone['name']} {label}",
+            name=label,
             zone=zone,
+            has_entity_name=True,
         )
 
     @property
