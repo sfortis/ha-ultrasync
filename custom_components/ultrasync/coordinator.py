@@ -24,6 +24,7 @@ from .vendor import ultrasync
 from .const import (
     DOMAIN,
     EVENT_POLL_INTERVAL,
+    EVENT_LOG_TYPE,
     EVENT_POLL_SIZE,
     EVENT_READ_PAGES,
     IGNORED_EVENT_CODES,
@@ -279,7 +280,9 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
     def _read_events(self, start: int | None = None) -> list[dict[str, Any]] | None:
         """Read one page of the event log, newest first."""
         with self.hub_lock:
-            return self.hub.events(count=EVENT_POLL_SIZE, start=start)
+            return self.hub.events(
+                count=EVENT_POLL_SIZE, start=start, event_type=EVENT_LOG_TYPE
+            )
 
     def _read_new_events(self) -> list[dict[str, Any]]:
         """Return the events newer than the last one seen, oldest first."""

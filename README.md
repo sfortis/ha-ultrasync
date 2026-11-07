@@ -106,9 +106,7 @@ On xGen8 panels each zone device also gets two switches, and the panel device ge
 
 ### Panel Event Log
 
-On xGen8 panels, `event.{ultrasync_integration}_panel_event` fires for every new entry in the panel's own event log. The log is read every 30 seconds, and at once when an area changes. The event type comes from the Contact ID code of the entry: `alarm`, `alarm_restore`, `trouble`, `trouble_restore`, `arm`, `disarm`, `bypass`, `bypass_restore` or `other`. The event data holds the panel's description, the Contact ID code, the zone, the area and the user, with their names.
-
-Remote logins (Contact ID 412) are left out, because Home Assistant itself logs in to the panel every few minutes.
+On xGen8 panels, `event.{ultrasync_integration}_panel_event` fires for every new entry in the panel's alarm log. That log holds alarms, troubles such as a low panel battery or a mains failure, arm and disarm, cancels and bypasses. The panel's main log is not used, because Home Assistant's own logins fill it: the panel ends a session after 10 minutes, so the integration logs in again six times an hour. The log is read every 30 seconds, and at once when an area changes. The event type comes from the Contact ID code of the entry: `alarm`, `alarm_restore`, `trouble`, `trouble_restore`, `arm`, `disarm`, `bypass`, `bypass_restore` or `other`. The event data holds the panel's description, the Contact ID code, the zone, the area and the user, with their names.
 
 Example automation that reports who disarmed the alarm:
 

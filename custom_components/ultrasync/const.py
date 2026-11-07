@@ -45,8 +45,16 @@ EVENT_POLL_SIZE = 10
 # further back in the log
 EVENT_READ_PAGES = 5
 
-# Contact ID codes left out of the event entity.  412 is a remote login,
-# which Home Assistant itself causes every few minutes.
+# The panel log the event entity reads.  The panel keeps a main log (0) and an
+# alarm log (1).  The alarm log holds alarms, troubles (battery, mains,
+# network), arm and disarm, cancels and bypasses, and keeps months of them.
+# The main log is filled with Home Assistant's own logins: the panel ends a
+# session after 10 minutes, so the library logs in again six times an hour,
+# and the main log only covers about a week.
+EVENT_LOG_TYPE = 1
+
+# Contact ID codes left out of the event entity.  412 is a remote login, which
+# Home Assistant itself causes every 10 minutes (only seen in the main log).
 IGNORED_EVENT_CODES = ("412",)
 
 # The event entity's event types, chosen from the Contact ID code
