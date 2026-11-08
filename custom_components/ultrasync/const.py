@@ -82,8 +82,10 @@ def event_type(code: str | None, restore: bool) -> str:
         return "alarm_restore" if restore else "alarm"
     if 300 <= number < 400:
         return "trouble_restore" if restore else "trouble"
-    if 400 <= number < 410:
-        # Contact ID reports an arm as the restore of an open/close event
+    if 400 <= number < 410 or 440 <= number < 450:
+        # Contact ID reports an arm as the restore of an open/close event.
+        # 401 is away; Stay is reported in the 44x family (441 Armed Stay,
+        # 442 Keyswitch Armed Stay) with the same restore convention.
         return "arm" if restore else "disarm"
     if 570 <= number < 580:
         return "bypass_restore" if restore else "bypass"
