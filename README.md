@@ -104,6 +104,19 @@ On xGen8 panels each zone device also gets two switches, and the panel device ge
 
 **Warning:** every Home Assistant user who can see these switches can bypass a zone. A bypassed zone does not trigger the alarm while the area is armed. Home Assistant exposes switches to voice assistants by default, so after enabling a Bypass switch, check that it is not exposed under Settings, Voice assistants, Expose.
 
+### Siren
+
+On xGen8 panels each area gets a siren entity, for example `siren.ultrasync_home_siren`:
+
+- Turning it on starts the panel's siren (the non-fire sound).
+- Turning it off silences the siren with the panel's mute command, not with a disarm.
+- `siren.turn_on` accepts a `duration` in seconds, after which the siren is silenced again. If the area is in alarm by then, the siren is left sounding, so that a timed siren never silences a real alarm.
+- The state comes from the panel bits that were set while the siren sounded after the start command.
+
+The panel stops the siren by itself after its programmed siren time, even if Home Assistant never turns it off. Home Assistant does not expose sirens to voice assistants by default.
+
+Two things were not confirmed on a panel when this was written. The mute command was only tried while the area was disarmed, so it is not known whether it leaves an armed area armed. The siren state was only seen after the start command, so it is not known whether a real alarm sets the same bits.
+
 ### Panel Event Log
 
 On xGen8 panels, `event.{ultrasync_integration}_panel_event` fires for every new entry in the panel's alarm log. That log holds alarms, troubles such as a low panel battery or a mains failure, arm and disarm, cancels and bypasses. The panel's main log is not used, because Home Assistant's own logins fill it: the panel ends a session after 10 minutes, so the integration logs in again six times an hour. The log is read every 30 seconds, and at once when an area changes. The event type comes from the Contact ID code of the entry: `alarm`, `alarm_restore`, `trouble`, `trouble_restore`, `arm`, `disarm`, `bypass`, `bypass_restore` or `other`. The event data holds the panel's description, the Contact ID code, the zone, the area and the user, with their names.
