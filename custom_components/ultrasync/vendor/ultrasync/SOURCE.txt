@@ -1,3 +1,3 @@
 Vendored from https://github.com/sfortis/ultrasync
 Branch: panel-faults
-Commit: 931e70d1ead8f364add837170a31d3d97d94a433
+Commit: 57d7f4ee907f99bfc0f7d0fca76431ad8c4f9ba0

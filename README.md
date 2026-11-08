@@ -110,7 +110,7 @@ On xGen8 panels each area gets a siren entity, for example `siren.ultrasync_home
 
 - Turning it on starts the panel's siren (the non-fire sound).
 - Turning it off silences the siren with the panel's mute command, not with a disarm.
-- `siren.turn_on` accepts a `duration` in seconds, after which the siren is silenced again. If the area is in alarm by then, the siren is left sounding, so that a timed siren never silences a real alarm.
+- `siren.turn_on` accepts a `duration` in seconds, after which the siren is silenced again. Just before that, the panel is read again; if the area is in alarm or the panel can not be read, the siren is left sounding and stops after the panel's siren time. A real alarm that starts in the second between that read and the mute can still be silenced.
 - The state comes from the panel bits that were set while the siren sounded after the start command.
 
 The panel stops the siren by itself after its programmed siren time, even if Home Assistant never turns it off. Home Assistant does not expose sirens to voice assistants by default.

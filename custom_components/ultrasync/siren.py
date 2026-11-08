@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import partial
 import logging
 from typing import Any, Optional
 
@@ -50,11 +51,11 @@ async def async_setup_entry(
 class UltraSyncAreaSiren(UltraSyncEntity, SirenEntity):
     """The siren of one area.
 
-    Turning it on starts the panel's (non-fire) siren.  Turning it off
-    silences the siren and leaves the area armed or disarmed as it was.  The
-    state is read from the panel, so the siren also shows as on when a real
-    alarm sounds it.  The panel stops the siren by itself after its
-    programmed siren time.
+    Turning it on starts the panel's (non-fire) siren.  Turning it off sends
+    the panel's mute command instead of a disarm; whether that leaves an
+    armed area armed has not been confirmed.  The state comes from the area
+    bits that were seen set while the siren sounded after the start command.
+    The panel stops the siren by itself after its programmed siren time.
     """
 
     _attr_supported_features = (
@@ -113,11 +114,18 @@ class UltraSyncAreaSiren(UltraSyncEntity, SirenEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Start the siren, and silence it again after the duration if given."""
+        previous = self._generation
         self._generation += 1
         generation = self._generation
 
-        # If this fails, a turn off scheduled by an earlier call stays pending
-        await self._async_set(True)
+        try:
+            await self._async_set(True)
+        except HomeAssistantError:
+            # Nothing newer was sent meanwhile, so a turn off that an earlier
+            # call scheduled stays valid for the siren that still sounds
+            if self._generation == generation:
+                self._generation = previous
+            raise
 
         if generation != self._generation:
             # A newer turn on or turn off was sent while this one waited
@@ -128,7 +136,9 @@ class UltraSyncAreaSiren(UltraSyncEntity, SirenEntity):
         if duration:
             self._seen_on = False
             self._cancel_off = async_call_later(
-                self.hass, float(duration), self._async_off_after_duration
+                self.hass,
+                float(duration),
+                partial(self._async_off_after_duration, generation),
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -154,9 +164,25 @@ class UltraSyncAreaSiren(UltraSyncEntity, SirenEntity):
                 self._cancel_pending_off()
         super()._handle_coordinator_update()
 
-    async def _async_off_after_duration(self, _now: datetime) -> None:
+    async def _async_off_after_duration(self, generation: int, _now: datetime) -> None:
         """Silence the siren once the requested duration has passed."""
         self._cancel_off = None
+        if generation != self._generation:
+            # A newer command is in flight; it decides what happens next
+            return
+
+        # Decide on what the panel reports now, not on the last poll, and
+        # leave the siren alone when the panel can not be read
+        await self.coordinator.async_refresh()
+        if generation != self._generation:
+            return
+        if not self.coordinator.last_update_success:
+            _LOGGER.warning(
+                "Not silencing the siren of area %s after the requested duration, "
+                "because the panel could not be read; it stops after its siren time",
+                self._bank + 1,
+            )
+            return
 
         area = self._area
         if area is not None and area.get("status") in TRIGGERED_STATUS:
