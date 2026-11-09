@@ -33,6 +33,7 @@ PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.SWITCH,
     Platform.SIREN,
+    Platform.BUTTON,
     Platform.EVENT,
     Platform.ALARM_CONTROL_PANEL,
 ]
