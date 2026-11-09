@@ -98,6 +98,7 @@ On xGen8 panels each zone device also gets two switches, and the panel device ge
 
 - `Bypass` bypasses the zone while it is on. It sends the same command as the `bypass` and `unbypass` services. These switches start disabled; enable the ones you want on the zone's device page. Zones that the panel does not allow to be bypassed get no switch.
 - `Chime` makes the keypad chime when the zone opens. It is a configuration entity.
+- The zone state sensor has a `bypassed` attribute for a bypass made by a user, and an `auto_bypassed` attribute for a zone that the panel bypassed by itself because it was open when the area was armed. The panel calls the second case "Inhibited". The `Bypass` switch shows only the first case. Both clear when the area is disarmed.
 - The area `Chime` switch turns the chime of the whole area on or off.
 - The area `Night Mode` binary sensor is on while the area is armed in night mode.
 - The area `Walk Test` binary sensor is on while the panel runs a walk test. It is a diagnostic entity.
