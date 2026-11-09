@@ -52,9 +52,9 @@ class UltraSyncAreaSiren(UltraSyncEntity, SirenEntity):
     """The siren of one area.
 
     Turning it on starts the panel's (non-fire) siren.  Turning it off sends
-    the panel's mute command instead of a disarm; whether that leaves an
-    armed area armed has not been confirmed.  The state comes from the area
-    bits that were seen set while the siren sounded after the start command.
+    the panel's mute command instead of a disarm, which leaves an armed area
+    armed.  The state comes from the area bit that was seen set while the
+    siren sounded after the start command.
     The panel stops the siren by itself after its programmed siren time.
     """
 
