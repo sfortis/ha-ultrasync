@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, Platform
+from homeassistant.const import CONF_HOST, CONF_NAME, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -26,6 +26,7 @@ from .const import (
     SERVICE_UNBYPASS,
 )
 from .coordinator import UltraSyncDataUpdateCoordinator
+from .host import host_has_credentials, host_title
 from .vendor.ultrasync import AlarmScene
 
 PLATFORMS = [
@@ -75,6 +76,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: UltraSyncConfigEntry) -> bool:
     """Set up UltraSync from a config entry."""
+    # Before 1.6.1 the entry was named after the full host, which can carry
+    # a user name and password. Home Assistant shows the title and writes it
+    # to the log (for example when the panel is not ready), so drop them.
+    # This runs before the first poll, whose failure logs the title.
+    host = entry.data[CONF_HOST]
+    if entry.title == host and host_has_credentials(host):
+        hass.config_entries.async_update_entry(entry, title=host_title(host))
+
     if not entry.options:
         options = {
             CONF_SCAN_INTERVAL: entry.data.get(
