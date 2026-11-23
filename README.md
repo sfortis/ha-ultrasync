@@ -101,7 +101,7 @@ The integration reports the faults that the panel itself shows, such as a low ba
 
 Zone faults need an xGen, xGen8 or ZeroWire panel.
 
-This fork ships its own copy of the `ultrasync` library in `custom_components/ultrasync/vendor`, taken from the `panel-faults` branch of `sfortis/ultrasync`. Home Assistant therefore installs nothing from PyPI or GitHub for this integration. After changing the library, run `scripts/vendor_ultrasync.sh <path to the ultrasync checkout>` to update the copy.
+This fork ships its own copy of the `ultrasync` library in `custom_components/ultrasync/vendor`, taken from the `panel-faults` branch of `sfortis/ultrasync`. Home Assistant therefore installs nothing from PyPI or GitHub for this integration. After changing the library, run `scripts/vendor_ultrasync.sh <path to the ultrasync checkout>` to update the copy. [UPSTREAM.md](UPSTREAM.md) describes how to check the upstream repositories for new releases and merge them.
 
 ### Zone and Area Controls
 
