@@ -102,6 +102,9 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # The area sequence numbers when the history was last read
         self._history_sequences = None
 
+        # The newest history line of each area, by area name
+        self._history_by_area: dict[str, dict[str, Any]] = {}
+
         update_interval = timedelta(seconds=entry.options[CONF_SCAN_INTERVAL])
 
         super().__init__(
@@ -283,7 +286,14 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
                 # Only remember these areas once the history was read, so a
                 # failed read is tried again on the next poll
                 self._history_sequences = sequences
-                details["history_data"] = list(self.hub.history_data.values())
+
+            # The library keeps only the newest history line, and that line
+            # names one area. Keep the newest line of every area, so the
+            # history sensor of one area is not removed when another area
+            # changes, or when a read returns no lines.
+            for line in self.hub.history_data.values():
+                self._history_by_area[line["area_name"]] = line
+            details["history_data"] = list(self._history_by_area.values())
 
             return details
 

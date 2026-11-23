@@ -11,10 +11,15 @@ Home Assistant installs this fork through HACS as a custom repository, so HACS n
 
 | Repository | Upstream version merged | Fork version | Date |
 |---|---|---|---|
-| `caronc/ha-ultrasync` | v1.3.0 | 1.6.0 | 2026-11-23 |
-| `caronc/ultrasync` | v1.0.6 | 1.0.6+sfortis.1 | 2026-11-23 |
+| `caronc/ha-ultrasync` | v1.3.0 | 1.6.1 | 2026-11-23 |
+| `caronc/ultrasync` | v1.0.6 | 1.0.6+sfortis.2 | 2026-11-23 |
 
 Update this table after every merge.
+
+## Pending Upstream Work
+
+- `caronc/ultrasync` merged PR #54 (area chime on and off) after v1.0.6. The fork has its own area chime switch, so the next library merge will conflict in `set_chime` and its tests.
+- The fork opened https://github.com/caronc/ultrasync/pull/55 on 2026-11-23. It stops fire, medical and panic from disarming xGen and ZeroWire panels. Once it is merged, the fork's own version of that fix can be dropped in favour of upstream's.
 
 ## Checking for New Commits
 

@@ -2,7 +2,7 @@
   "domain": "ultrasync",
   "name": "UltraSync Alarm Panel",
   "iot_class": "local_polling",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "documentation": "https://github.com/sfortis/ha-ultrasync",
   "issue_tracker": "https://github.com/sfortis/ha-ultrasync/issues",
   "requirements": [],

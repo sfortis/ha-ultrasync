@@ -1,6 +1,7 @@
 """Config flow for the Interlogix/Hills ComNav UltraSync Hub."""
 import logging
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
@@ -41,6 +42,25 @@ RECONFIGURE_SCHEMA = vol.Schema(
 
 class AuthFailureException(IOError):
     """A general exception we can use to track Authentication failures."""
+
+
+def _host_title(host: str) -> str:
+    """Return the host name to show as the entry title.
+
+    The host can be a URL with a user name and password for basic
+    authentication, and the title is not treated as a secret.
+    """
+    if "://" in host:
+        return urlparse(host.strip()).hostname or host
+    return host
+
+
+def _host_has_credentials(host: str) -> bool:
+    """Return true if the host is a URL with a user name or password."""
+    if "://" not in host:
+        return False
+    parsed = urlparse(host.strip())
+    return bool(parsed.username or parsed.password)
 
 
 def validate_input(hass: HomeAssistant, data: dict) -> Dict[str, Any]:
@@ -99,7 +119,7 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="unknown")
             else:
                 return self.async_create_entry(
-                    title=user_input[CONF_HOST],
+                    title=_host_title(user_input[CONF_HOST]),
                     data=user_input,
                 )
 
@@ -139,11 +159,13 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="unknown")
 
             else:
-                # The entry is named after the host when it is first set up.
-                # Follow a new host, unless the user renamed the entry.
+                # The entry is named after the host when it is first set up
+                # (the full host before 1.6.1, the host name since). Follow
+                # a new host, unless the user renamed the entry.
+                old_host = entry.data[CONF_HOST]
                 title = (
-                    user_input[CONF_HOST]
-                    if entry.title == entry.data[CONF_HOST]
+                    _host_title(user_input[CONF_HOST])
+                    if entry.title in (old_host, _host_title(old_host))
                     else entry.title
                 )
 
@@ -163,10 +185,12 @@ class UltraSyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Fill the form with what is saved today (or what was just typed).
         # The PIN is left blank, so it is never sent back to the browser.
+        # So is a host that carries a user name or password.
         suggested = {
             key: value
             for key, value in (user_input or entry.data).items()
             if key != CONF_PIN
+            and not (key == CONF_HOST and _host_has_credentials(value))
         }
         return self.async_show_form(
             step_id="reconfigure",
