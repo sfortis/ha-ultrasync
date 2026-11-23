@@ -1,4 +1,5 @@
 """Provides the UltraSync DataUpdateCoordinator."""
+import asyncio
 from datetime import timedelta
 import logging
 import threading
@@ -36,6 +37,17 @@ from .vendor.ultrasync.common import NX595EVendor
 _EMPTY_LOG = object()
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _read_poll_outcome(poll: asyncio.Future) -> None:
+    """Read how a panel read ended, so a late error is not reported as unhandled."""
+    # A read that ends after the timeout has nobody waiting on it anymore.
+    if poll.cancelled():
+        return
+
+    error = poll.exception()
+    if error is not None:
+        _LOGGER.debug("UltraSync panel read failed: %s", error)
 
 
 class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
@@ -78,11 +90,17 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         self._next_event_read = 0.0
         self._event_area_sequences = None
 
+        # The panel read currently running in a worker thread (if any)
+        self._poll = None
+
         # Used to track delta (for change tracking)
         self._area_delta = {}
         self._zone_delta = {}
         self._output_delta = {}
         self._history_delta = {}
+
+        # The area sequence numbers when the history was last read
+        self._history_sequences = None
 
         update_interval = timedelta(seconds=entry.options[CONF_SCAN_INTERVAL])
 
@@ -100,9 +118,23 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
         # initialize our response
         response = {}
 
+        # A read that timed out keeps running in its worker thread, because
+        # a timeout can not stop it. Skip this update until it ends, so
+        # waiting threads don't pile up while the panel is down. On a
+        # healthy panel every read ends long before the next update.
+        if self._poll is not None and not self._poll.done():
+            raise UpdateFailed("Still waiting on the last UltraSync panel read")
+
+        self._poll = self.hass.async_add_executor_job(self._details)
+        self._poll.add_done_callback(_read_poll_outcome)
+
         # The hub can sometimes take a very long time to respond; wait
+        # (asyncio.wait never cancels self._poll, so it stays pending until
+        # the thread really ends)
         async with timeout(10):
-            details = await self.hass.async_add_executor_job(self._details)
+            await asyncio.wait((self._poll,))
+
+        details = self._poll.result()
 
         # The event log is read after the details, with its own time limit,
         # so a slow event read never fails the poll
@@ -162,16 +194,22 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
                 state_value = "{} by {} at {}".format(history["action"], history["user"], history["timestamp"])
                 response[sensor_id] = state_value
 
-                # Fire event to get initial state
-                self.hass.bus.fire(
-                    "ultrasync_history_update",
-                    {
-                        "name": history_name,
-                        "status": history["action"],
-                        "timestamp": history["timestamp"],
-                        "user": history["user"],
-                    },
-                )
+                # Announce each history line once: on the first poll, then
+                # whenever the area's latest line changes
+                latest = (history["action"], history["user"], history["timestamp"])
+                if self._history_delta.get(history_name) != latest:
+                    self.hass.bus.fire(
+                        "ultrasync_history_update",
+                        {
+                            "name": history_name,
+                            "status": history["action"],
+                            "timestamp": history["timestamp"],
+                            "user": history["user"],
+                        },
+                    )
+
+                    # Update our last seen line
+                    self._history_delta[history_name] = latest
 
             # Process area data
             for area in details["areas"]:
@@ -188,25 +226,6 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
 
                     # Update our sequence
                     self._area_delta[area["bank"]] = area["sequence"]
-
-                    # Update our history when area state changes (if history data is present)
-                    if "history" in details and details["history_data"]:
-                        for history in details["history_data"]:
-                            history_name = history["area_name"]
-                            sensor_id = "history_name{}state".format(history_name)
-                            state_value = "{} by {} at {}".format(history["action"], history["user"], history["timestamp"])
-                            if history_name == area["name"]:
-                               self.hass.bus.fire(
-                                   "ultrasync_history_update",
-                                   {
-                                        "name": history_name,
-                                        "status": history["action"],
-                                        "timestamp": history["timestamp"],
-                                        "user": history["user"],
-                                   },
-                               )
-                               self._history_delta[history["area_name"]] = history["action"]
-                               response[sensor_id] = state_value
 
                 # Set our state:
                 response["area{:0>2}_state".format(area["bank"] + 1)] = area[
@@ -247,7 +266,26 @@ class UltraSyncDataUpdateCoordinator(DataUpdateCoordinator):
     def _details(self) -> dict:
         """Read the panel details, waiting for any alarm command to finish."""
         with self.hub_lock:
-            return self.hub.details(max_age_sec=0)
+            details = self.hub.details(max_age_sec=0)
+            if not details:
+                return details
+
+            # The library only reads the history page when it logs in. A
+            # new history line comes with an area change (for example
+            # someone arming), so read it again only then. A quiet panel
+            # gets no extra requests.
+            sequences = {area["bank"]: area["sequence"] for area in details["areas"]}
+            if self._history_sequences is None:
+                # First read: the history was just read while logging in
+                self._history_sequences = sequences
+
+            elif sequences != self._history_sequences and self.hub.history():
+                # Only remember these areas once the history was read, so a
+                # failed read is tried again on the next poll
+                self._history_sequences = sequences
+                details["history_data"] = list(self.hub.history_data.values())
+
+            return details
 
     def _event_read_due(self, details: dict) -> bool:
         """Return true if the event log should be read on this poll.

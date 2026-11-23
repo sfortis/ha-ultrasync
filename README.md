@@ -7,7 +7,7 @@
 
 ![ZeroWire Hub Image](https://raw.githubusercontent.com/caronc/ultrasync/master/static/zerowire_hub.jpeg)
 
-Interlogix ZeroWire and Hills ComNav (NX-595E) UltraSync Security Panel for Integration for Home Assistant Community Store (HACS)
+Home Assistant integration (installable through HACS) for Interlogix ZeroWire, Interlogix xGen/xGen8 and Hills ComNav (NX-595E) alarm panels that use UltraSync
 
 This is based on a [a Pull Request I created here](https://github.com/home-assistant/core/pull/42549) to implement [my version of a UltraSync security panel](https://github.com/caronc/ultrasync) into Home Assistant (HA).
 
@@ -22,13 +22,14 @@ You can only be logged into the ComNav/ZeroWire hub with the same user *once*; a
 ### From HACS
 
 1. Install HACS if you haven't already (see [installation guide](https://hacs.netlify.com/docs/installation/manual)).
-1. Find and install **UltraSync** integration in HACS's "Integrations" tab.
+1. In HACS, open the menu, choose "Custom repositories" and add `https://github.com/sfortis/ha-ultrasync` with the type "Integration". The **UltraSync** entry in the HACS default list is the upstream `caronc/ha-ultrasync`, which does not have the changes of this fork.
+1. Download the **UltraSync** integration from that repository.
 1. Restart your Home Assistant.
 1. Add "UltraSync" integration in Home Assistant's "**Configuration** -> **Integrations** tab.
 
 ### Manual
 
-1. Download and unzip the [repo archive](https://github.com/caronc/ha-ultrasync/archive/master.zip). (You could also click "Download ZIP" after pressing the green button in the repo, alternatively, you could clone the repo from SSH add-on).
+1. Download and unzip the [repo archive](https://github.com/sfortis/ha-ultrasync/archive/main.zip). (You could also click "Download ZIP" after pressing the green button in the repo, alternatively, you could clone the repo from SSH add-on).
 2. Copy contents of the archive/repo into your `/config` directory.
 3. Restart your Home Assistant.
 4. Add "UltraSync" integration in Home Assistant's "**Configuration** -> **Integrations** tab.
@@ -38,6 +39,14 @@ You can only be logged into the ComNav/ZeroWire hub with the same user *once*; a
 Go to the integrations page in your configuration and click on new **Integration** -> **UltraSync**.
 
 **Note**: You can only be logged into the ZeroWire/UltraSync hub with the same user once; a subsequent login with the same user logs out the other. Since Home Assistant (HA) actively polls and maintains a login session to this Hub, it can prevent you from being able to log into at the same time elsewhere (via it's website). It is strongly recommended that you create a second user account on your Hub dedicated for just HA.
+
+### Changing the Connection
+
+If your panel moves to a new address, or you change the user or PIN it logs in with, open the UltraSync integration, click the three dots and choose **Reconfigure**. Type in the new details, including the PIN. They are tested against your panel before they are saved.
+
+### Options
+
+Click **Configure** on the UltraSync integration to change the **Update frequency (seconds)**: how often Home Assistant reads your panel. The default is 1 second; it can be set from 1 up to 86400 (one day).
 
 ### Sensor
 
@@ -61,6 +70,8 @@ Output and history sensors also work the same way and only load what is detected
 - `ultrasync_output2state`: The Output 2 State
 - `ultrasync_outputXstate`: The Output X State
 - `ultrasync_historyXstate`: The History State
+
+**Note:** Output and history sensors are only available on ComNav panels. They won't appear for xGen, xGen8, ZeroWire or Reliance XR panels. On xGen panels (including the Reliance XR) the local web page has no outputs page, so relays and scenes can't be controlled from Home Assistant.
 
 The attributes read from the hub are associated with each Detected Zone, Area, History (by area) and Output; so you can rename them to something more appropriate if you feel the need.
 
@@ -172,6 +183,31 @@ Example automation to send a message via [Apprise](https://www.home-assistant.io
       message: "{{trigger.event.data.name}} has new status {{trigger.event.data.status}}"
 ```
 
+### Fire, Medical and Panic Alarms
+
+When someone presses the Fire, Medical (Auxiliary) or Panic (Police) keys on a keypad, the panel raises that alarm on the area. Home Assistant sees it straight away:
+
+- The area sensor changes to `Fire Alarm`, `Medical Alarm` or `Panic Alarm`.
+- An `ultrasync_area_update` event is fired with that same `status`.
+- The area's alarm control panel changes to `triggered`.
+
+Example automation that sends a message for any of these three alarms:
+
+```yaml
+- alias: Keypad Emergency
+  trigger:
+    platform: event
+    event_type: ultrasync_area_update
+  condition:
+    condition: template
+    value_template: "{{ trigger.event.data.status in ['Fire Alarm', 'Medical Alarm', 'Panic Alarm'] }}"
+  action:
+    service: notify.apprise
+    data:
+      title: "Emergency!"
+      message: "{{ trigger.event.data.status }} in {{ trigger.event.data.name }}"
+```
+
 ### Services
 
 Available services:
@@ -183,7 +219,7 @@ Available services:
 - `panic`: Triggers the Alarm (Panic Alarm). ComNav panels only.
 - `disarm`: Disarm the alarm
 - `bypass`: Bypasses a specified Zone
-- `switch`: Activates an Output Control entity
+- `switch`: Activates an Output Control entity (ComNav panels only)
 
 On xGen, xGen8 and ZeroWire panels the `medical`, `fire` and `panic` services return an error. Older versions of the `ultrasync` library sent a disarm to these panels instead.
 
